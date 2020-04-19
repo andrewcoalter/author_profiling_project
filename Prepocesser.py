@@ -5,6 +5,19 @@ import numpy as np
 import torch
 
 
+def loadGloveModel(gloveFile):
+    print("Loading Glove Model")
+    f = open(gloveFile,'r', encoding="utf-8")
+    model = {}
+    for line in f:
+        splitLine = line.split()
+        word = splitLine[0]
+        embedding = np.array([float(val) for val in splitLine[1:]])
+        model[word] = embedding
+    print("Done.",len(model)," words loaded!")
+    return model
+
+
 class TrainingDataHTMLParser(HTMLParser):
     data = []
 
@@ -85,23 +98,60 @@ def fetch_author_tweets(test):
         author_tweets[author] = parser.data
     return author_tweets
 
+FLAGS = re.MULTILINE | re.DOTALL
+
+def hashtag(text):
+    text = text.group()
+    hashtag_body = text[1:]
+    if hashtag_body.isupper():
+        result = "<hashtag> {} <allcaps>".format(hashtag_body)
+    else:
+        result = " ".join(["<hashtag>"] + re.split(r"(?=[A-Z])", hashtag_body, flags=FLAGS))
+    return result
+
+def allcaps(text):
+    text = text.group()
+    return text.lower() + " <allcaps>"
+
+
+def preprocess(text):
+    # Different regex parts for smiley faces
+    eyes = r"[8:=;]"
+    nose = r"['`\-]?"
+
+    # function so code less repetitive
+    def re_sub(pattern, repl):
+        return re.sub(pattern, repl, text, flags=FLAGS)
+
+    text = re_sub(r"https?:\/\/\S+\b|www\.(\w+\.)+\S*", "<url>")
+    text = re_sub(r"/"," / ")
+    text = re_sub(r"@\w+", "<user>")
+    text = re_sub(r"{}{}[)dD]+|[)dD]+{}{}".format(eyes, nose, nose, eyes), "<smile>")
+    text = re_sub(r"{}{}p+".format(eyes, nose), "<lolface>")
+    text = re_sub(r"{}{}\(+|\)+{}{}".format(eyes, nose, nose, eyes), "<sadface>")
+    text = re_sub(r"{}{}[\/|l*]".format(eyes, nose), "<neutralface>")
+    text = re_sub(r"<3","<heart>")
+    text = re_sub(r"[-+]?[.\d]*[\d]+[:,.\d]*", "<number>")
+    text = re_sub(r"#\S+", hashtag)
+    text = re_sub(r"([!?.]){2,}", r"\1 <repeat>")
+    text = re_sub(r"\b(\S*?)(.)\2{2,}\b", r"\1\2 <elong>")
+    text = re_sub(r"([A-Z]){2,}", allcaps)
+    return text.lower()
+
 
 def tokenize(text):
-    # replace url links with URL token
-    text = re.sub(r"http\S+", r'URL', text)
-    # replace hashtags with # token
-    text = re.sub(r"#\S+", r'#', text)
-    # replace mentions with @ token
-    text = re.sub(r"@\S+", r'@', text)
+    text = preprocess(text)
     tokens = []
     current_token = ""
     previous_was_alnum = False
     for char in text:
         if not char.isalnum():
-            if current_token != "" and (previous_was_alnum or current_token[len(current_token) - 1] != char):
+            if (current_token != "" and char != "<" and char != ">") and (previous_was_alnum or current_token[len(current_token) - 1] != char):
                 tokens.append(current_token)
                 current_token = ""
             previous_was_alnum = False
+            if char == "<" or char == ">":
+                previous_was_alnum = True
         else:
             if current_token != "" and not previous_was_alnum:
                 tokens.append(current_token)
@@ -141,6 +191,8 @@ def fetch_number_of_authors(test, i):
     return len(fetch_author_truths(test)[i])
 
 
+Word2VecModel = loadGloveModel("glove.twitter.27B.100d.txt")
+
 AUTHOR_TWEETS = (fetch_author_tweets(False), fetch_author_tweets(True))
 ORDERED_AUTHORS = []
 AUTHOR_TWEETS_TOKENS = []
@@ -164,23 +216,24 @@ for i, author_tweets in enumerate(AUTHOR_TWEETS_TOKENS):
     for author in ORDERED_AUTHORS[i]:
         for tweets in author_tweets[author]:
             for token in tweets:
-                if token in token_numbering:
-                    token_tensors[token] = np.zeros(len(token_numbering.keys()) + 1)
-                    token_tensors[token][token_numbering[token]] = 1
-    token_tensors[" "] = np.zeros(len(token_numbering.keys()) + 1)
-    token_tensors[" "][len(token_numbering.keys())] = 1
+                if token.lower() in Word2VecModel:
+                    token_tensors[token] = Word2VecModel[token.lower()]
+    token_tensors[" "] = np.zeros(100)
     TOKEN_TENSORS.append(token_tensors)
 
+def fetch_word2vec_model():
+    return Word2VecModel
 
 def fetch_author_tweets_tokens_ordered(test):
+    authors = ORDERED_AUTHORS[test]
     tensors = []
-    for author in ORDERED_AUTHORS[test]:
+    for author in authors:
         tensor = []
         author_tweets_tokens = AUTHOR_TWEETS_TOKENS[test]
         token_tensors = TOKEN_TENSORS[test]
         for tweets in author_tweets_tokens[author]:
             for token in tweets:
-                if token in token_numbering:
+                if token in token_tensors:
                     tensor.append(token_tensors[token])
             tensor.append(token_tensors[" "])
         i = len(tensor)
@@ -189,3 +242,24 @@ def fetch_author_tweets_tokens_ordered(test):
             i += 1
         tensors.append(tensor)
     return torch.Tensor(tensors)
+
+
+def fetch_author_tweets_tokens_ordered_singular(test, i):
+    author = ORDERED_AUTHORS[test][i]
+    tensors = []
+    tensor = []
+    author_tweets_tokens = AUTHOR_TWEETS_TOKENS[test]
+    token_tensors = TOKEN_TENSORS[test]
+    for tweets in author_tweets_tokens[author]:
+        for token in tweets:
+            if token in token_tensors:
+                tensor.append(token_tensors[token])
+        tensor.append(token_tensors[" "])
+    i = len(tensor)
+    while i < longest_token_sequence:
+        tensor.append(token_tensors[" "])
+        i += 1
+    tensors.append(tensor)
+    return torch.Tensor(tensors)
+
+print(fetch_author_tweets_tokens_ordered(False).size())

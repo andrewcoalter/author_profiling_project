@@ -5,14 +5,14 @@ import Prepocesser
 device = torch.device('cuda' if torch.cuda.is_available() else 'cpu')
 x_train = Prepocesser.fetch_author_tweets_tokens(False)
 x_train = x_train.to(device)
-y_train = Prepocesser.fetch_author_truths(False)[1]
+y_train = Prepocesser.fetch_author_truths(False)[0]
 y_train = y_train.to(device)
 x_test = Prepocesser.fetch_author_tweets_tokens(True)
 x_test = x_test.to(device)
-y_test = Prepocesser.fetch_author_truths(True)[1]
+y_test = Prepocesser.fetch_author_truths(True)[0]
 y_test = y_test.to(device)
 
-input_size = len(Prepocesser.get_tokens())
+input_size = len(Prepocesser.get_tokens()[0])
 hidden_size = 300
 num_classes = 4
 num_epochs = 1000
@@ -36,6 +36,7 @@ class FeedForward(nn.Module):
 
 model = FeedForward(input_size, hidden_size, num_classes)
 model.to(device)
+
 
 def fit(x, y, model, opt, loss_fn):
     for epoch in range(num_epochs):

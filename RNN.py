@@ -7,20 +7,19 @@ CATEGORY = 1
 device = torch.device('cpu' if torch.cuda.is_available() else 'cpu')
 x_train = Prepocesser.fetch_author_tweets_tokens_ordered(False)
 x_train = x_train.to(device)
+y_train = Prepocesser.fetch_author_truths(False)[0]
+y_train = y_train.to(device)
 x_test = Prepocesser.fetch_author_tweets_tokens_ordered(True)
 x_test = x_test.to(device)
-y_train = Prepocesser.fetch_author_truths(False)[CATEGORY]
-y_train = y_train.to(device)
-y_test = Prepocesser.fetch_author_truths(True)[CATEGORY]
+y_test = Prepocesser.fetch_author_truths(True)[0]
 y_test = y_test.to(device)
 
 tokens, longest = Prepocesser.get_tokens()
-input_size = len(tokens) + 1
+input_size = 100
 hidden_size = 300
-num_classes = 2
-num_epochs = 10
+num_classes = 4
+num_epochs = 100
 learning_rate = 0.1
-
 
 class RNN(nn.Module):
     def __init__(self, input_size, hidden_size, output_size):
@@ -31,12 +30,14 @@ class RNN(nn.Module):
         self.softmax = nn.LogSoftmax(dim=0)
 
     def forward(self, input, hidden):
+        input = input.to(device)
+        hidden = hidden.to(device)
         combined = torch.cat([input, hidden], dim=0)
-        combined.to(device)
+        combined = combined.to(device)
         hidden = self.i2h(combined)
         output = self.i2o(combined)
         output = self.softmax(output)
-        return output, hidden
+        return output.to(device), hidden.to(device)
 
     def initHidden(self):
         hidden = torch.zeros(self.hidden_size)
@@ -47,19 +48,20 @@ model = RNN(input_size, hidden_size, num_classes)
 model.to(device)
 
 loss_fn = nn.NLLLoss()
+loss_fn.to(device)
 
-
-def train(x, y, model, loss_fn):
+def train(y, model, loss_fn):
     for epoch in range(num_epochs):
         print(epoch)
 
         model.zero_grad()
-
-        outputs = torch.zeros([x.size()[0], num_classes])
+        length = Prepocesser.fetch_number_of_authors(False, CATEGORY)
+        outputs = torch.zeros([length, num_classes])
         outputs.to(device)
-        for current_tokens in x:
+        for i in range(length):
+            current_tokens = x_train[i]
+            current_tokens = current_tokens.to(device)
             hidden = model.initHidden()
-            hidden.to(device)
             output = torch.zeros(num_classes)
             output.to(device)
             for j in range(len(current_tokens)):
@@ -87,26 +89,37 @@ def accuracy(predictions, correct_indices):
 
 
 model.eval()
-y_pred = torch.zeros([len(x_test), num_classes])
+length = Prepocesser.fetch_number_of_authors(True, CATEGORY)
+y_pred = torch.zeros([length, num_classes])
 y_pred.to(device)
-for i, current_tokens in enumerate(x_test):
+print(x_test.size())
+for i in range(length):
+    print(i)
+    current_tokens = x_test[i]
+    print(current_tokens.size())
     hidden = model.initHidden()
     output = torch.zeros(num_classes)
     output.to(device)
     for j in range(len(current_tokens)):
         output, hidden = model(current_tokens[j], hidden)
     y_pred[i] = output
-print(y_pred)
+print(y_pred.size())
+print(y_test.size())
 before_train = loss_fn(y_pred, y_test)
 print('Accuracy before Training', accuracy(y_pred, y_test))
 print('Test loss before Training', before_train.item())
 
-train(x_train, y_train, model, loss_fn)
+
+train(y_train, model, loss_fn)
+
 
 model.eval()
-y_pred = torch.zeros([len(x_test), num_classes])
+length = Prepocesser.fetch_number_of_authors(True, CATEGORY)
+y_pred = torch.zeros([length, num_classes])
 y_pred.to(device)
-for i, current_tokens in enumerate(x_test):
+for i in range(length):
+    print(i)
+    current_tokens = x_test[i]
     hidden = model.initHidden()
     output = torch.zeros(num_classes)
     output.to(device)
