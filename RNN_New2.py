@@ -13,11 +13,11 @@ x_test = x_test.to(device)
 y_test = Prepocesser.fetch_author_truths(True)[0]
 y_test = y_test.to(device)
 
-input_size = 100
-hidden_size = 40
+input_size = 200
+hidden_size = 50
 num_classes = 4
-num_epochs = 1000
-learning_rate = 0.04
+num_epochs = 500
+learning_rate = 0.008
 
 
 # Fully connected feed forward neural network with one hidden layer
@@ -37,6 +37,7 @@ class RNN(nn.Module):
 
         # Passing in the input and hidden state into the model and obtaining outputs
         out, hidden = self.rnn(x, hidden)
+        print(out.size())
 
         # Reshaping the outputs such that it can be fit into the fully connected layer
         filter = torch.Tensor(np.zeros([out.size(0), out.size(2)]))
@@ -83,7 +84,7 @@ def accuracy(predictions, correct_indices):
     return correct/number
 
 
-loss_fn = nn.NLLLoss()
+loss_fn = nn.CrossEntropyLoss()
 opt = torch.optim.Adam(model.parameters(), lr=learning_rate)
 
 model.eval()

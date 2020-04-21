@@ -4,66 +4,75 @@ import numpy as np
 import Prepocesser
 
 device = torch.device('cpu' if torch.cuda.is_available() else 'cpu')
-x_train = Prepocesser.fetch_author_tweets_tokens(False)
+x_train = Prepocesser.fetch_author_tweets_tokens_ordered(False)
 x_train = x_train.to(device)
-y_train = Prepocesser.fetch_author_truths(False)[1]
+y_train = Prepocesser.fetch_author_truths(False)[0]
 y_train = y_train.to(device)
-x_test = Prepocesser.fetch_author_tweets_tokens(True)
+x_test = Prepocesser.fetch_author_tweets_tokens_ordered(True)
 x_test = x_test.to(device)
-y_test = Prepocesser.fetch_author_truths(True)[1]
+y_test = Prepocesser.fetch_author_truths(True)[0]
 y_test = y_test.to(device)
 
-input_size = len(Prepocesser.get_tokens())
-hidden_size = 300
-num_classes = 2
-num_epochs = 1000
-learning_rate = 0.005
+input_size = 200
+hidden_size = 50
+num_classes = 4
+num_epochs = 100
+learning_rate = 0.01
 
 
-class RNN(nn.Module):
-    def __init__(self, input_size, hidden_size, output_size):
-        super(RNN, self).__init__()
-        self.hidden_size = hidden_size
-        self.i2h = nn.LSTM(input_size + hidden_size, hidden_size)
-        self.i2o = nn.LSTM(input_size + hidden_size, output_size)
-        self.softmax = nn.LogSoftmax(dim=0)
+class LSTM(nn.Module):
+    def __init__(self, output_size, embedding_dim, hidden_dim, n_layers, drop_prob=0.5):
+        super(LSTM, self).__init__()
+        self.output_size = output_size
+        self.n_layers = n_layers
+        self.hidden_dim = hidden_dim
 
-    def forward(self, input, hidden):
-        combined = torch.cat([input, hidden], dim=0)
-        combined.to(device)
-        hidden = self.i2h(combined)
-        output = self.i2o(combined)
-        output = self.softmax(output)
-        return output, hidden
+        self.lstm = nn.LSTM(embedding_dim, hidden_dim, n_layers, dropout=drop_prob, batch_first=True)
+        self.dropout = nn.Dropout(drop_prob)
+        self.fc = nn.Linear(hidden_dim, output_size)
+        self.sigmoid = nn.LogSoftmax(dim=1)
 
-    def initHidden(self):
-        return torch.zeros(self.hidden_size)
+    def forward(self, x, hidden):
+        batch_size = x.size(0)
+        lstm_out, hidden = self.lstm(x, hidden)
+        lstm_out = lstm_out.contiguous().view(-1, self.hidden_dim)
+
+        out = self.dropout(lstm_out)
+        out = self.fc(out)
+        out = self.sigmoid(out)
+
+        out = out.view(batch_size, -1)
+        out = out[:, -self.output_size:]
+
+        return out
+
+    def init_hidden(self, batch_size):
+        weight = next(self.parameters()).data
+        hidden = (weight.new(self.n_layers, batch_size, self.hidden_dim).zero_().to(device),
+                  weight.new(self.n_layers, batch_size, self.hidden_dim).zero_().to(device))
+        return hidden
 
 
-model = RNN(input_size, hidden_size, num_classes)
+model = LSTM(num_classes, input_size, hidden_size, 2)
 model.to(device)
 
 loss_fn = nn.NLLLoss()
+optimizer = torch.optim.Adam(model.parameters(), lr=learning_rate)
 
 
-def train(x, y, model, loss_fn):
+def fit(x, y, model, opt, loss_fn):
+    model.train()
     for epoch in range(num_epochs):
+        h = model.init_hidden(x.size(0))
+        h = tuple([e.data for e in h])
         print(epoch)
-        hidden = model.initHidden()
-        hidden.to(device)
-
         model.zero_grad()
 
-        outputs = torch.zeros([x.size()[0], num_classes])
-        for i in range(x.size()[0]):
-            output, hidden = model(x[i], hidden)
-            outputs[i] = output
+        loss = loss_fn(model(x, h), y)
 
-        loss = loss_fn(outputs, y)
         loss.backward()
-
-        for p in model.parameters():
-            p.data.add_(-learning_rate, p.grad.data)
+        opt.step()
+        opt.zero_grad()
 
     return loss.item()
 
@@ -73,34 +82,31 @@ def accuracy(predictions, correct_indices):
     number = 0
     for i in range(len(predictions)):
         values, indices = torch.max(predictions.__getitem__(i), 0)
+        print(values, indices)
         if indices.item() == correct_indices[i]:
             correct += 1
         number += 1
     return correct/number
 
 
+loss_fn = nn.CrossEntropyLoss()
+opt = torch.optim.Adam(model.parameters(), lr=learning_rate)
+
 model.eval()
-hidden = model.initHidden()
-hidden.to(device)
-y_pred = torch.zeros([x_test.size()[0], num_classes])
-y_pred.to(device)
-for i, x in enumerate(x_test):
-    x.to(device)
-    y_pred[i] = (model(x, hidden)[0].to(device))
+h = model.init_hidden(x_test.size(0))
+h = tuple([e.data for e in h])
+y_pred = model(x_test, h)
+print(y_pred.squeeze().size())
 before_train = loss_fn(y_pred, y_test)
 print('Accuracy before Training', accuracy(y_pred, y_test))
 print('Test loss before Training', before_train.item())
 
-train(x_train, y_train, model, loss_fn)
+fit(x_train, y_train, model, opt, loss_fn)
 
 model.eval()
-hidden = model.initHidden()
-hidden.to(device)
-y_pred = torch.zeros([x_test.size()[0], num_classes])
-y_pred.to(device)
-for i, x in enumerate(x_test):
-    x.to(device)
-    y_pred[i] = (model(x, hidden)[0].to(device))
+h = model.init_hidden(x_test.size(0))
+h = tuple([e.data for e in h])
+y_pred = model(x_test, h)
 print(y_pred)
 after_train = loss_fn(y_pred, y_test)
 print('Accuracy after Training', accuracy(y_pred, y_test))

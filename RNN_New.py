@@ -17,10 +17,10 @@ y_test = y_test.to(device)
 
 tokens, longest = Prepocesser.get_tokens()
 input_size = 100
-hidden_size = 300
+hidden_size = 10
 num_classes = 4
 num_epochs = 10
-learning_rate = 0.1
+learning_rate = 0.001
 
 
 class RNN(nn.Module):
@@ -39,23 +39,17 @@ class RNN(nn.Module):
 
     def forward(self, x):
 
-        print(x.size())
         batch_size = x.size(0)
-
-        #x = x.permute(1, 0, 2)
 
         # Initializing hidden state for first input using method defined below
         hidden = self.init_hidden(batch_size)
 
         # Passing in the input and hidden state into the model and obtaining outputs
         out, hidden = self.rnn(x, hidden)
-        print(out.size(), hidden.size())
 
         # Reshaping the outputs such that it can be fit into the fully connected layer
         out = out.contiguous().view(-1, self.hidden_dim)
-        print(out.size())
         out = self.fc(out)
-        print(out.size())
 
         return out, hidden
 
@@ -82,7 +76,6 @@ def train(x, y, model, loss_fn):
         x.to(device)
         y_pred = torch.Tensor(np.zeros([len(y_train), num_classes]))
         for i in range(len(y_train)):
-            print(i)
             y_pred_i, hidden = model(Prepocesser.fetch_author_tweets_tokens_ordered_singular(False, i))
             prob = nn.functional.softmax(y_pred_i[-1], dim=0)
             y_pred[i] = prob

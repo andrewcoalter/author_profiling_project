@@ -4,7 +4,6 @@ import re
 import numpy as np
 import torch
 
-
 def loadGloveModel(gloveFile):
     print("Loading Glove Model")
     f = open(gloveFile,'r', encoding="utf-8")
@@ -104,9 +103,9 @@ def hashtag(text):
     text = text.group()
     hashtag_body = text[1:]
     if hashtag_body.isupper():
-        result = "<hashtag> {} <allcaps>".format(hashtag_body)
+        result = " <hashtag> {} <allcaps> ".format(hashtag_body)
     else:
-        result = " ".join(["<hashtag>"] + re.split(r"(?=[A-Z])", hashtag_body, flags=FLAGS))
+        result = " ".join([" <hashtag> "] + re.split(r"(?=[A-Z])", hashtag_body, flags=FLAGS))
     return result
 
 def allcaps(text):
@@ -123,18 +122,18 @@ def preprocess(text):
     def re_sub(pattern, repl):
         return re.sub(pattern, repl, text, flags=FLAGS)
 
-    text = re_sub(r"https?:\/\/\S+\b|www\.(\w+\.)+\S*", "<url>")
+    text = re_sub(r"https?:\/\/\S+\b|www\.(\w+\.)+\S*", " <url> ")
     text = re_sub(r"/"," / ")
-    text = re_sub(r"@\w+", "<user>")
-    text = re_sub(r"{}{}[)dD]+|[)dD]+{}{}".format(eyes, nose, nose, eyes), "<smile>")
-    text = re_sub(r"{}{}p+".format(eyes, nose), "<lolface>")
-    text = re_sub(r"{}{}\(+|\)+{}{}".format(eyes, nose, nose, eyes), "<sadface>")
-    text = re_sub(r"{}{}[\/|l*]".format(eyes, nose), "<neutralface>")
-    text = re_sub(r"<3","<heart>")
-    text = re_sub(r"[-+]?[.\d]*[\d]+[:,.\d]*", "<number>")
+    text = re_sub(r"@\w+", " <user> ")
+    text = re_sub(r"{}{}[)dD]+|[)dD]+{}{}".format(eyes, nose, nose, eyes), " <smile> ")
+    text = re_sub(r"{}{}p+".format(eyes, nose), " <lolface> ")
+    text = re_sub(r"{}{}\(+|\)+{}{}".format(eyes, nose, nose, eyes), " <sadface> ")
+    text = re_sub(r"{}{}[\/|l*]".format(eyes, nose), " <neutralface> ")
+    text = re_sub(r"<3"," <heart> ")
+    text = re_sub(r"[-+]?[.\d]*[\d]+[:,.\d]*", " <number> ")
     text = re_sub(r"#\S+", hashtag)
-    text = re_sub(r"([!?.]){2,}", r"\1 <repeat>")
-    text = re_sub(r"\b(\S*?)(.)\2{2,}\b", r"\1\2 <elong>")
+    text = re_sub(r"([!?.]){2,}", r"\1 <repeat> ")
+    text = re_sub(r"\b(\S*?)(.)\2{2,}\b", r"\1\2 <elong> ")
     text = re_sub(r"([A-Z]){2,}", allcaps)
     return text.lower()
 
@@ -191,7 +190,7 @@ def fetch_number_of_authors(test, i):
     return len(fetch_author_truths(test)[i])
 
 
-Word2VecModel = loadGloveModel("glove.twitter.27B.100d.txt")
+Word2VecModel = loadGloveModel("glove.twitter.27B.200d.txt")
 
 AUTHOR_TWEETS = (fetch_author_tweets(False), fetch_author_tweets(True))
 ORDERED_AUTHORS = []
@@ -218,13 +217,15 @@ for i, author_tweets in enumerate(AUTHOR_TWEETS_TOKENS):
             for token in tweets:
                 if token.lower() in Word2VecModel:
                     token_tensors[token] = Word2VecModel[token.lower()]
-    token_tensors[" "] = np.zeros(100)
+    token_tensors[" "] = np.zeros(200)
     TOKEN_TENSORS.append(token_tensors)
 
 def fetch_word2vec_model():
     return Word2VecModel
 
 def fetch_author_tweets_tokens_ordered(test):
+    hit = 0
+    miss = 0
     authors = ORDERED_AUTHORS[test]
     tensors = []
     for author in authors:
@@ -233,14 +234,18 @@ def fetch_author_tweets_tokens_ordered(test):
         token_tensors = TOKEN_TENSORS[test]
         for tweets in author_tweets_tokens[author]:
             for token in tweets:
-                if token in token_tensors:
-                    tensor.append(token_tensors[token])
+                if token.lower() in token_tensors:
+                    miss += 1
+                    tensor.append(token_tensors[token.lower()])
+            hit += 1
             tensor.append(token_tensors[" "])
         i = len(tensor)
         while i < longest_token_sequence:
+            hit += 1
             tensor.append(token_tensors[" "])
             i += 1
         tensors.append(tensor)
+    print(hit/(hit + miss))
     return torch.Tensor(tensors)
 
 
@@ -261,5 +266,3 @@ def fetch_author_tweets_tokens_ordered_singular(test, i):
         i += 1
     tensors.append(tensor)
     return torch.Tensor(tensors)
-
-print(fetch_author_tweets_tokens_ordered(False).size())
